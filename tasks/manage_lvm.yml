@@ -6,7 +6,7 @@
     pvs: "{{ item.disks }}"
     state: present
   with_items: "{{ lvm_groups }}"
-  when: item.create is defined and item.create
+  when: item.state|default("present") == "present"
 
 - name: LVOL | Creating new LVM logical volume(s)
   lvol:
@@ -19,9 +19,9 @@
     - "{{ lvm_groups }}"
     - lvnames
   when: >
-    (item.0.create is defined and item.0.create) and
+    (item.0.state|default("present") == "present") and
     (item.1 is defined and item.1 | length > 0 ) and
-    (item.1.create is defined and item.1.create)
+    (item.1.state|default("mounted") == "mounted" or item.1.state|default("mounted") == "inactive" )
 
 - name: FILESYSTEM | Creating new filesystem on new LVM logical volume(s)
   filesystem:
@@ -32,32 +32,19 @@
     - "{{ lvm_groups }}"
     - lvnames
   when: >
-    (item.0.create is defined and item.0.create) and
+    (item.0.state|default("present") == "present") and
     (item.1 is defined and item.1 | length > 0 ) and
-    (item.1.create is defined and item.1.create)
-
-- name: MOUNT | Mounting new filesystem(s)
-  mount:
-    name: "{{ item.1.mount_point }}"
-    src: "/dev/{{ item.0.vgname }}/{{ item.1.lvname }}"
-    fstype: "{{ item.1.filesystem }}"
-    state: mounted
-    opts: "{{ item.1.mount_options | default('defaults') }}"
-  with_subelements:
-    - "{{ lvm_groups }}"
-    - lvnames
-  when: >
-    (item.0.create is defined and item.0.create) and
-    (item.1 is defined and item.1 | length > 0 ) and
-    (item.1.create is defined and item.1.create) and
-    (item.1.mount is defined and item.1.mount)
+    (item.1.state|default("mounted") == "mounted" or item.1.state|default("mounted") == "inactive" )
 
 - name: COMMAND | Resizing filesystem
   command: resize2fs /dev/{{ item.0.vgname }}/{{ item.1.lvname }}
   with_subelements:
     - "{{ lvm_groups }}"
     - lvnames
-  when: lvm.changed and item.1.filesystem != "swap" and item.1.filesystem != "xfs"
+  when:
+    - lvm.changed and item.1.filesystem != "swap"
+    - item.1.filesystem != "xfs"
+    - item.1.state|default("mounted") == "mounted"
 
 - name: COMMAND | Resizing xfs filesystem
   command: xfs_growfs /dev/{{ item.0.vgname }}/{{ item.1.lvname }}
@@ -73,6 +60,21 @@
     - lvnames
   when: lvm.changed and item.1.filesystem == "swap"
 
+- name: MOUNT | Mounting new filesystem(s)
+  mount:
+    name: "{{ item.1.mount_point }}"
+    src: "/dev/{{ item.0.vgname }}/{{ item.1.lvname }}"
+    fstype: "{{ item.1.filesystem }}"
+    state: mounted
+    opts: "{{ item.1.mount_options | default('defaults') }}"
+  with_subelements:
+    - "{{ lvm_groups }}"
+    - lvnames
+  when: >
+    (item.0.state|default("present") == "present") and
+    (item.1 is defined and item.1 | length > 0 ) and
+    (item.1.state|default("mounted") == "mounted")
+
 - name: MOUNT | Unmounting filesystem(s)
   mount:
     name: "{{ item.1.mount_point }}"
@@ -83,8 +85,23 @@
     - "{{ lvm_groups }}"
     - lvnames
   when: >
+    (item.0.state|default("present") == "present") and
     (item.1 is defined and item.1 != 'None') and
-    (item.1.create is defined and not item.1.create)
+    (item.1.state|default("mounted") == "inactive" or item.1.state|default("mounted") == "absent" )
+
+- name: LVOL | Deactivate LVM logical volume(s)
+  lvol:
+    vg: "{{ item.0.vgname }}"
+    lv: "{{ item.1.lvname }}"
+    state: present
+    active: no
+  with_subelements:
+    - "{{ lvm_groups }}"
+    - lvnames
+  when: >
+    (item.0.state|default("present") == "present") and
+    (item.1 is defined and item.1 | length > 0 ) and
+    (item.1.state|default("mounted") == "inactive")
 
 - name: LVOL | Removing LVM logical volume(s)
   lvol:
@@ -96,8 +113,9 @@
     - "{{ lvm_groups }}"
     - lvnames
   when: >
+    (item.0.state|default("present") == "present") and
     (item.1 is defined and item.1 | length > 0 ) and
-    (item.1.create is defined and not item.1.create)
+    (item.1.state|default("mounted") == "absent")
 
 - name: LVG | Removing LVM volume group(s)
   lvg:
@@ -105,4 +123,4 @@
     pvs: "{{ item.disks }}"
     state: absent
   with_items: "{{ lvm_groups }}"
-  when: item.create is defined and not item.create
+  when: item.state|default("present") == "absent"

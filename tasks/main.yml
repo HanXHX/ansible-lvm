@@ -1,13 +1,15 @@
 ---
 
 - name: INCLUDE | Debian family
-  include: debian.yml
+  include_tasks: debian.yml
   when: ansible_os_family == "Debian"
+  tags: install
 
 - name: INCLUDE | RedHat family
-  include: centos.yml
+  include_tasks: centos.yml
   when: ansible_os_family == "RedHat"
+  tags: install
 
-- name: INCLUDE | Apply
-  include: manage_lvm.yml
+- name: IMPORT | Apply
+  import_tasks: manage_lvm.yml
   when: lvm_apply
